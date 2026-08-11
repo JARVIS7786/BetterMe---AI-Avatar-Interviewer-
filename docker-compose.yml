@@ -1,0 +1,59 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: ai-interviewer-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-interviewer-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Groq API (FREE)
+      - GROQ_API_KEY=${GROQ_API_KEY}
+
+      # Supabase (FREE)
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # Application
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+
+    volumes:
+      - ./backend:/app
+      - chroma_data:/app/chroma_db
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+  chroma_data:
+    driver: local

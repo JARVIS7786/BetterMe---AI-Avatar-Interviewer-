@@ -1,0 +1,35 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# Supabase
+supabase==2.0.3
+postgrest==0.13.0
+
+# LLM and RAG
+langchain==0.1.0
+langchain-community==0.0.10
+sentence-transformers==2.2.2
+chromadb==0.4.22
+
+# Document Processing
+PyPDF2==3.0.1
+python-docx==1.1.0
+pdfplumber==0.10.3
+
+# TTS - Using gTTS (simple, no conflicts)
+gtts==2.5.0
+pydub==0.25.1
+
+# ML Libraries
+numpy>=1.22.5,<2.0.0
+torch>=2.1.0
+transformers>=4.35.0
+
+# Redis
+redis>=5.0.0
+
+# Groq for Whisper STT
+groq>=0.30.0

@@ -1,0 +1,240 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Custom scrollbar - Professional Interview Theme */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(30, 58, 138, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(37, 99, 235, 0.4);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.6);
+}
+
+/* Animations */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Gradient text - Professional Interview Theme */
+.gradient-text {
+  background: linear-gradient(to right, #1e3a8a, #3b82f6, #2563eb);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass morphism effect - Professional Theme */
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 58, 138, 0.15);
+  box-shadow: 0 4px 6px rgba(30, 58, 138, 0.05);
+}
+
+/* Button glow effect - Professional Interview Theme */
+.btn-glow {
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+  transition: box-shadow 0.3s ease;
+}
+
+.btn-glow:hover {
+  box-shadow: 0 0 30px rgba(37, 99, 235, 0.6);
+}
+
+/* Pulse animation for recording indicator */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Additional Professional Interview Theme Styles */
+
+/* Primary accent color */
+.accent-primary {
+  color: #2563eb;
+}
+
+.bg-accent-primary {
+  background-color: #2563eb;
+}
+
+/* Secondary accent color */
+.accent-secondary {
+  color: #1e40af;
+}
+
+.bg-accent-secondary {
+  background-color: #1e40af;
+}
+
+/* Success/Active state */
+.accent-success {
+  color: #059669;
+}
+
+.bg-accent-success {
+  background-color: #059669;
+}
+
+/* Professional card effect */
+.professional-card {
+  background: #ffffff;
+  border: 1px solid rgba(30, 58, 138, 0.12);
+  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.08);
+  transition: all 0.3s ease;
+}
+
+.professional-card:hover {
+  box-shadow: 0 8px 16px rgba(30, 58, 138, 0.15);
+  border-color: rgba(37, 99, 235, 0.25);
+}
+
+/* Interview highlight effect */
+.interview-highlight {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-left: 4px solid #2563eb;
+}
+
+/* Professional button */
+.btn-professional {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  transition: all 0.3s ease;
+}
+
+.btn-professional:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+
+/* Subtle gradient background */
+.bg-interview-gradient {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
+}
+
+/* Professional divider */
+.divider-professional {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(30, 58, 138, 0.2), transparent);
+}
+
+/* Status badge */
+.badge-live {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.badge-ready {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+}
+
+/* Focus state for interview inputs */
+.input-interview:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Professional text colors */
+.text-corporate-primary {
+  color: #1e3a8a;
+}
+
+.text-corporate-secondary {
+  color: #475569;
+}
+
+.text-corporate-muted {
+  color: #64748b;
+}
