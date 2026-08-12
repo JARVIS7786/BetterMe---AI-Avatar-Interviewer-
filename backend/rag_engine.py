@@ -36,7 +36,7 @@ class RAGEngine:
 
         # Initialize embedding model
         print("Loading embedding model...")
-        # self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embedding_model = None
         # print("Embedding model loaded")
 
         # Initialize Supabase client
@@ -211,7 +211,7 @@ class RAGEngine:
             chunks = [text]
 
         # Generate embeddings
-        embeddings = self.embedding_model.encode(...).tolist()
+        embeddings = self._get_embedding_model.encode(...).tolist()
 
         # Prepare metadata
         ids = [f"{user_id}_chunk_{i}" for i in range(len(chunks))]
