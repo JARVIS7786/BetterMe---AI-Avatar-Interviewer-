@@ -36,8 +36,8 @@ class RAGEngine:
 
         # Initialize embedding model
         print("Loading embedding model...")
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        print("Embedding model loaded")
+        # self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # print("Embedding model loaded")
 
         # Initialize Supabase client
         supabase_url = os.getenv('SUPABASE_URL')
@@ -52,6 +52,7 @@ class RAGEngine:
 
         self.is_initialized = True
         print("RAG Engine initialized")
+    
 
     # ============================================================
     # RESUME PROCESSING
@@ -187,6 +188,16 @@ class RAGEngine:
         if len(text) > 200:
             summary += "..."
         return summary
+    
+    def _get_embedding_model(self):
+        if self.embedding_model is None:
+            print("Loading embedding model...")
+            self.embedding_model = SentenceTransformer(
+                "all-MiniLM-L6-v2",
+                device="cpu"
+            )
+            
+        return self.embedding_model
 
     def _store_resume_embeddings(self, text: str, user_id: str, skills: List[str], experience_years: int):
         """
@@ -200,7 +211,7 @@ class RAGEngine:
             chunks = [text]
 
         # Generate embeddings
-        embeddings = self.embedding_model.encode(chunks).tolist()
+        embeddings = self.embedding_model.encode(...).tolist()
 
         # Prepare metadata
         ids = [f"{user_id}_chunk_{i}" for i in range(len(chunks))]
