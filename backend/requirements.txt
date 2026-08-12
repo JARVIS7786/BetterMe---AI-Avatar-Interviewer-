@@ -11,7 +11,6 @@ postgrest==0.13.0
 # LLM and RAG
 langchain==0.1.0
 langchain-community==0.0.10
-sentence-transformers==2.2.2
 chromadb==0.4.22
 
 # Document Processing
@@ -25,11 +24,14 @@ pydub==0.25.1
 
 # ML Libraries
 numpy>=1.22.5,<2.0.0
-torch>=2.1.0
-transformers>=4.35.0
+torch>=2.1.1
+
 
 # Redis
 redis>=5.0.0
 
 # Groq for Whisper STT
 groq>=0.30.0
+sentence-transformers==2.7.0
+huggingface-hub==0.16.4
+transformers==4.34.0
