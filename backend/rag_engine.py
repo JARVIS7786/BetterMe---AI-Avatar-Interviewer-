@@ -51,7 +51,6 @@ class GeminiEmbedder:
 
 
 class RAGEngine:
-class RAGEngine:
     """CRAG/Self-RAG implementation with ChromaDB and Supabase"""
 
     def __init__(self):
