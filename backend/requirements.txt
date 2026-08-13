@@ -1,12 +1,17 @@
-fastapi==0.104.1
+# fastapi >=0.109 drops the anyio<4 pin, which conflicted with
+# google-genai (requires anyio>=4.8). Do NOT go below 0.109.
+fastapi==0.109.2
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 pydantic==2.5.0
 python-dotenv==1.0.0
 
 # Supabase
-supabase==2.0.3
-postgrest==0.13.0
+# supabase >=2.11 allows httpx<0.29, which intersects google-genai's
+# httpx>=0.28.1 (resolved at httpx 0.28.x). 2.0.3 pinned httpx<0.25 = conflict.
+# postgrest must NOT be pinned separately (0.13.0 also pinned httpx<0.25);
+# supabase pulls a compatible postgrest automatically.
+supabase==2.11.0
 
 # LLM and RAG
 langchain==0.1.0
@@ -18,8 +23,10 @@ PyPDF2==3.0.1
 python-docx==1.1.0
 pdfplumber==0.10.3
 
-# TTS - Using gTTS (simple, no conflicts)
-google-genai>1.0.0
+# TTS - Gemini TTS (Google) + Groq Whisper (STT)
+# Pinned to 1.x: google-genai 2.x requires pydantic>=2.12.5 which would
+# conflict with pydantic==2.5.0 below. 1.21.1 is what the code was tested with.
+google-genai==1.21.1
 pydub==0.25.1
 
 # ML Libraries

@@ -110,9 +110,9 @@ const InterviewPrep = () => {
         duration: 4000,
         icon: '📄',
       });
-      // Navigate to resume upload page
+      // Navigate to the resume upload page
       setTimeout(() => {
-        navigate('/upload-resume'); // or wherever your resume upload page is
+        navigate('/resume');
       }, 2000);
     } else {
       const errorMessage = error.response?.data?.detail 

@@ -15,16 +15,46 @@ load_dotenv()
 class TTSService:
     GEMINI_MODEL = "gemini-3.1-flash-tts-preview"
 
+    # Canonical avatar ids (MUST match frontend/src/config/avatars.js).
+    # Voice groups are intentional: we do not need 7 unique voices.
     VOICES = {
+        # Female voice group
         "cara": {
             "voice": "Kore",
             "gender": "female",
             "description": "Natural female interviewer voice",
         },
+        "bunny": {
+            "voice": "Aoede",
+            "gender": "female",
+            "description": "Light, upbeat female interviewer voice",
+        },
+        "mushroom_king": {
+            "voice": "Leda",
+            "gender": "female",
+            "description": "Warm female interviewer voice",
+        },
+        # Male voice group
         "kevin": {
             "voice": "Puck",
             "gender": "male",
             "description": "Natural male interviewer voice",
+        },
+        "blue_demon": {
+            "voice": "Fenrir",
+            "gender": "male",
+            "description": "Deeper male interviewer voice",
+        },
+        "yeti": {
+            "voice": "Charon",
+            "gender": "male",
+            "description": "Low, calm male interviewer voice",
+        },
+        # Deterministic default for Baymax
+        "baymax": {
+            "voice": "Iapetus",
+            "gender": "male",
+            "description": "Soft, measured male interviewer voice",
         },
     }
 
@@ -52,6 +82,13 @@ class TTSService:
         speaker = speaker or self.default_voice
 
         if speaker not in self.VOICES:
+            # Explicit (not silent) fallback: unknown avatar ids get the
+            # deterministic default voice, but we log it loudly.
+            print(
+                f"WARNING: unknown TTS speaker '{speaker}' "
+                f"(known: {sorted(self.VOICES.keys())}). "
+                f"Falling back to default '{self.default_voice}'."
+            )
             speaker = self.default_voice
 
         return self.VOICES[speaker]["voice"]
@@ -127,7 +164,13 @@ class TTSService:
         if not audio_bytes:
             return None
 
-        duration = (len(text.split()) / 150.0) * 60.0
+        # Gemini TTS does not return viseme data, so we honestly report
+        # None here; the frontend uses frequency-based animation instead.
+        # Duration is measured from the real WAV bytes (speech is 24kHz WAV).
+        duration = self.get_audio_duration(audio_bytes, format="wav")
+        if duration <= 0:
+            # Last-resort estimate (~150 wpm) if parsing ever fails.
+            duration = (len(text.split()) / 150.0) * 60.0
 
         return {
             "audio_bytes": audio_bytes,

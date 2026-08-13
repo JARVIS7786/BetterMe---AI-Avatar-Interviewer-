@@ -62,7 +62,9 @@ class QuestionGenerationResponse(BaseModel):
 
 class TTSRequest(BaseModel):
     text: str
-    speaker: str = "cara"  # "cara" (female) or "kevin" (male)
+    # Canonical avatar ids (see frontend/src/config/avatars.js):
+    # cara, kevin, baymax, blue_demon, bunny, mushroom_king, yeti
+    speaker: str = "cara"
 
 class HealthResponse(BaseModel):
     status: str
@@ -348,8 +350,12 @@ async def text_to_speech_with_lipsync(request: TTSRequest):
         import base64
         audio_base64 = base64.b64encode(result['audio_bytes']).decode('utf-8')
 
+        # Contract (must match frontend InterviewRoom.jsx):
+        # { success, audio_base64, viseme_data, duration }
+        # viseme_data is null because Gemini TTS provides no visemes;
+        # the frontend then uses frequency-based animation.
         return {
-            "success":True,
+            "success": True,
             "audio_base64": audio_base64,
             "viseme_data": result['viseme_data'],
             "duration": result['duration']
@@ -357,6 +363,45 @@ async def text_to_speech_with_lipsync(request: TTSRequest):
 
     except Exception as e:
         print(f"ERROR: TTS+Lipsync error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Transcribe a recorded answer using Groq Whisper.
+    Expects multipart/form-data with a single `file` field.
+    Returns: { "success": true, "transcript": "..." }
+    """
+    try:
+        audio_bytes = await file.read()
+
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Empty audio file")
+
+        print(f"STT: transcribe request: filename={file.filename}, bytes={len(audio_bytes)}")
+
+        transcript = tts_service.transcribe_audio(
+            audio_file=audio_bytes,
+            filename=file.filename or "answer.webm"
+        )
+
+        if not transcript or not transcript.strip():
+            # Groq/Whisper failure or silence - report honestly, no fake success.
+            return {
+                "success": False,
+                "transcript": "",
+                "message": "No speech detected or transcription failed"
+            }
+
+        return {
+            "success": True,
+            "transcript": transcript.strip()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR: Transcribe error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/batch-tts")
