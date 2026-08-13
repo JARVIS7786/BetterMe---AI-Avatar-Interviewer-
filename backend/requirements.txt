@@ -1,3 +1,4 @@
+# Web framework
 # fastapi >=0.109 drops the anyio<4 pin, which conflicted with
 # google-genai (requires anyio>=4.8). Do NOT go below 0.109.
 fastapi==0.109.2
@@ -8,9 +9,7 @@ python-dotenv==1.0.0
 
 # Supabase
 # supabase >=2.11 allows httpx<0.29, which intersects google-genai's
-# httpx>=0.28.1 (resolved at httpx 0.28.x). 2.0.3 pinned httpx<0.25 = conflict.
-# postgrest must NOT be pinned separately (0.13.0 also pinned httpx<0.25);
-# supabase pulls a compatible postgrest automatically.
+# httpx>=0.28.1 (resolved at httpx 0.28.x). Do NOT pin postgrest separately.
 supabase==2.11.0
 
 # LLM and RAG
@@ -18,27 +17,30 @@ langchain==0.1.0
 langchain-community==0.0.10
 chromadb==0.4.22
 
+# NOTE: torch / sentence-transformers / transformers / huggingface-hub were
+# REMOVED. Embeddings now come from the Gemini API (gemini-embedding-001 via
+# google-genai below, in rag_engine.py). The old local stack installed the
+# multi-GB CUDA build of torch plus nvidia-* wheels; importing it at boot and
+# loading the model on first request exceeded Render's free 512MB RAM — the
+# cause of the "Out of memory (used over 512Mi)" deploy failures. Do not
+# re-add those packages unless the instance is upgraded to >=2GB RAM.
+
 # Document Processing
 PyPDF2==3.0.1
 python-docx==1.1.0
 pdfplumber==0.10.3
 
-# TTS - Gemini TTS (Google) + Groq Whisper (STT)
-# Pinned to 1.x: google-genai 2.x requires pydantic>=2.12.5 which would
-# conflict with pydantic==2.5.0 below. 1.21.1 is what the code was tested with.
+# Gemini: TTS (tts_service) + embeddings (rag_engine) — one SDK, one API key.
+# Locked to 1.x: google-genai 2.x requires pydantic>=2.12.5 which conflicts
+# with pydantic==2.5.0 above.
 google-genai==1.21.1
 pydub==0.25.1
 
 # ML Libraries
 numpy>=1.22.5,<2.0.0
 
-
-
-# Redis
+# Redis (optional cache; the app logs a warning and continues without it)
 redis>=5.0.0
 
-# Groq for Whisper STT
+# Groq for LLM + Whisper STT
 groq>=0.30.0
-sentence-transformers==2.7.0
-huggingface-hub==0.16.4
-transformers==4.34.0
