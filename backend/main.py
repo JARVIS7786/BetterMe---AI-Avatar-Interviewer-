@@ -349,7 +349,8 @@ async def text_to_speech_with_lipsync(request: TTSRequest):
         audio_base64 = base64.b64encode(result['audio_bytes']).decode('utf-8')
 
         return {
-            "audio": audio_base64,
+            "success":True,
+            "audio_base64": audio_base64,
             "viseme_data": result['viseme_data'],
             "duration": result['duration']
         }

@@ -24,7 +24,7 @@ class LLMService:
             raise ValueError("GROQ_API_KEY not found in environment variables")
 
         self.client = Groq(api_key=self.api_key)
-        self.model_name = "llama3-70b-8192"
+        self.model_name = "llama-3.3-70b-versatile"
         self.is_loaded = True
 
         print(f"OK: LLM Service initialized: {self.model_name}")
