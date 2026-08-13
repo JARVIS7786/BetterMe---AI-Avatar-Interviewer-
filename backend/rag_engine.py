@@ -9,18 +9,48 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import PyPDF2
 import docx
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
-
+import numpy as np
 load_dotenv()
 
 class NoOpEmbeddingFunction(EmbeddingFunction):
+    # Placeholder EF that ChromaDB's API requires; this app always passes
+    # embeddings explicitly, so it is never actually invoked. Dimension must
+    # match the Gemini embedder below (gemini-embedding-001 -> 3072 dims).
     def __call__(self, input: Documents) -> Embeddings:
-        return [[0.0] * 384 for _ in input]
+        return [[0.0] * 3072 for _ in input]
+
+
+class GeminiEmbedder:
+    """
+    Drop-in replacement for SentenceTransformer.encode() backed by the Gemini
+    embedding API. Zero local ML model -> RAM stays ~300-400MB flat on
+    Render's free 512MB instance — no OOM at boot or on resume upload.
+
+    Model: gemini-embedding-001. Do NOT switch back to text-embedding-004 —
+    Google retired it on 2026-01-14 and the API now rejects it.
+    """
+    MODEL = "gemini-embedding-001"
+
+    def __init__(self):
+        # Uses the same GEMINI_API_KEY as tts_service; created lazily so
+        # boot order is unchanged.
+        from google import genai
+        self._client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+    def encode(self, texts, **_ignored_kwargs):
+        single = isinstance(texts, str)
+        items = [texts] if single else list(texts)
+        resp = self._client.models.embed_content(model=self.MODEL, contents=items)
+        vectors = [list(e.values) for e in resp.embeddings]
+        return np.asarray(vectors[0] if single else vectors, dtype="float32")
+
+
+class RAGEngine:
 class RAGEngine:
     """CRAG/Self-RAG implementation with ChromaDB and Supabase"""
 
