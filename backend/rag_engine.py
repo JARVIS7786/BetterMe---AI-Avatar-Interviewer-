@@ -14,10 +14,13 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import PyPDF2
 import docx
+from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 load_dotenv()
 
-
+class NoOpEmbeddingFunction(EmbeddingFunction):
+    def __call__(self, input: Documents) -> Embeddings:
+        return [[0.0] * 384 for _ in input]
 class RAGEngine:
     """CRAG/Self-RAG implementation with ChromaDB and Supabase"""
 
@@ -31,11 +34,12 @@ class RAGEngine:
         # Get or create collection
         self.collection = self.chroma_client.get_or_create_collection(
             name="candidate_resumes",
-            metadata={"description": "Candidate resume embeddings"}
+            metadata={"description": "Candidate resume embeddings"},
+            embedding_function=NoOpEmbeddingFunction()
         )
 
         # Initialize embedding model
-        print("Loading embedding model...")
+      
         self.embedding_model = None
         # print("Embedding model loaded")
 
@@ -211,7 +215,7 @@ class RAGEngine:
             chunks = [text]
 
         # Generate embeddings
-        embeddings = self._get_embedding_model.encode(...).tolist()
+        embeddings = self._get_embedding_model().encode(chunks).tolist()
 
         # Prepare metadata
         ids = [f"{user_id}_chunk_{i}" for i in range(len(chunks))]
