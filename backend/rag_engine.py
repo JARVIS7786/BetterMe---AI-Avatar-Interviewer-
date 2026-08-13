@@ -225,13 +225,12 @@ class RAGEngine:
     
     def _get_embedding_model(self):
         if self.embedding_model is None:
-            print("Loading embedding model...")
-            self.embedding_model = SentenceTransformer(
-                "all-MiniLM-L6-v2",
-                device="cpu"
-            )
-            
+            print("Initializing embedding backend (Gemini gemini-embedding-001)...")
+            self.embedding_model = GeminiEmbedder()
+
         return self.embedding_model
+            
+
 
     def _store_resume_embeddings(self, text: str, user_id: str, skills: List[str], experience_years: int):
         """
