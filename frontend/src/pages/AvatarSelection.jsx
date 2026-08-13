@@ -1,21 +1,26 @@
-import React, { Component, useEffect, useState, Suspense } from 'react';
+import React, { Component, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { ArrowRight, User, CheckCircle, AlertTriangle, Loader } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, useGLTF, PerspectiveCamera, Environment } from '@react-three/drei';
+import {
+  OrbitControls,
+  useGLTF,
+  PerspectiveCamera,
+  Environment,
+} from '@react-three/drei';
 import { AVATARS } from '../config/avatars';
 
-// 3D Model Component
-const AvatarModel = ({ modelPath }) => {
+// 3D Model Component - per-avatar preview framing comes from the registry
+const AvatarModel = ({ modelPath, scale, position }) => {
   const { scene } = useGLTF(modelPath);
 
   return (
     <primitive
       object={scene}
-      scale={1.8}
-      position={[0, -1.5, 0]}
+      scale={scale}
+      position={position}
       rotation={[0, 0, 0]}
     />
   );
@@ -29,8 +34,7 @@ const ModelLoader = () => (
   </mesh>
 );
 
-// Catches GLTF load/render failures (e.g. .gltf referencing a missing
-// external .bin/texture) so one bad model never breaks the whole grid.
+// Catches GLTF load/render failures so one bad model never crashes the page.
 class PreviewErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -61,7 +65,7 @@ class PreviewErrorBoundary extends Component {
 const AvatarSelection = () => {
   const navigate = useNavigate();
   const [selectedAvatar, setSelectedAvatar] = useState(
-    // Restore a previously made choice so the flow is consistent
+    // Restore a previously made choice so the flow stays consistent
     // when navigating back from InterviewPrep.
     () => sessionStorage.getItem('selectedAvatar')
   );
@@ -94,16 +98,27 @@ const AvatarSelection = () => {
   }, []);
 
   const markUnavailable = (avatarId) => {
+    console.error(`Marking avatar '${avatarId}' as unavailable (preview failed)`);
     setAvailability((prev) => ({ ...prev, [avatarId]: 'unavailable' }));
     setSelectedAvatar((prev) => (prev === avatarId ? null : prev));
   };
 
   const handleSelectAvatar = (avatar) => {
     if (availability[avatar.id] === 'unavailable') {
-      toast.error(`${avatar.name}'s 3D model is not available yet`);
+      toast.error(`${avatar.name}'s 3D model is not available`);
       return;
     }
+
     setSelectedAvatar(avatar.id);
+
+    // Single canonical key. The model path and voice are NOT stored here:
+    // InterviewRoom resolves both from the registry/backend by avatar id,
+    // so nothing can drift out of sync.
+    sessionStorage.setItem('selectedAvatar', avatar.id);
+    // Remove legacy keys from older builds so they can never go stale.
+    sessionStorage.removeItem('selectedAvatarModel');
+    sessionStorage.removeItem('selectedAvatarVoice');
+
     toast.success(`${avatar.name} selected!`);
   };
 
@@ -118,14 +133,13 @@ const AvatarSelection = () => {
       return;
     }
 
-    // Canonical snake_case ids, matching backend TTS voice mapping.
-    sessionStorage.setItem('selectedAvatar', selectedAvatar);
     navigate('/interview-prep');
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-12 px-6">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
+
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -135,13 +149,14 @@ const AvatarSelection = () => {
           <h1 className="text-5xl font-bold text-white mb-4">
             Choose Your AI Interviewer
           </h1>
+
           <p className="text-xl text-purple-200">
             Select the avatar you're most comfortable practicing with
           </p>
         </motion.div>
 
         {/* Avatar Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
           {AVATARS.map((avatar, index) => {
             const status = availability[avatar.id] || 'checking';
             const isUnavailable = status === 'unavailable';
@@ -157,14 +172,14 @@ const AvatarSelection = () => {
                 className={`
                   relative cursor-pointer rounded-3xl p-6 border-2 transition-all
                   ${isSelected
-                    ? 'border-white bg-white/20 shadow-2xl scale-105'
+                    ? 'border-white bg-white/20 shadow-2xl scale-[1.02]'
                     : 'border-white/30 bg-white/5 hover:bg-white/10 hover:border-white/50'
                   }
                   ${isUnavailable ? 'opacity-50 cursor-not-allowed' : ''}
                   backdrop-blur-lg
                 `}
               >
-                {/* Selection Badge */}
+                {/* Selected badge */}
                 {isSelected && !isUnavailable && (
                   <motion.div
                     initial={{ scale: 0 }}
@@ -175,7 +190,7 @@ const AvatarSelection = () => {
                   </motion.div>
                 )}
 
-                {/* Unavailable Badge - explicit, never a silent fallback */}
+                {/* Availability badges - explicit, never a silent fallback */}
                 {isUnavailable && (
                   <div className="absolute top-3 right-3 px-3 py-1 bg-amber-500/80 rounded-full flex items-center gap-1 z-10">
                     <AlertTriangle className="w-3 h-3 text-white" />
@@ -183,36 +198,61 @@ const AvatarSelection = () => {
                   </div>
                 )}
                 {status === 'checking' && (
-                  <div className="absolute top-3 right-3 px-3 py-1 bg-white/20 rounded-full flex items-center gap-1 z-10">
+                  <div className="absolute top-3 right-3 px-3 py-1 bg-white/20 rounded-full z-10">
                     <Loader className="w-3 h-3 text-white animate-spin" />
                   </div>
                 )}
 
-                {/* 3D Avatar Preview */}
-                <div className={`
-                  w-56 h-56 mx-auto mb-6 rounded-3xl bg-gradient-to-br ${avatar.color}
-                  overflow-hidden shadow-2xl
-                `}>
+                {/* 3D Preview */}
+                <div
+                  className={`
+                    w-full h-72 mx-auto mb-6 rounded-3xl
+                    bg-gradient-to-br ${avatar.color}
+                    overflow-hidden shadow-2xl
+                  `}
+                >
                   {isUnavailable ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-white/80 gap-2 px-6 text-center">
                       <AlertTriangle className="w-8 h-8" />
                       <p className="text-sm">
-                        Model file missing or not self-contained
+                        Model file missing or failed to load
                       </p>
                     </div>
                   ) : (
                     <PreviewErrorBoundary avatarId={avatar.id} onError={markUnavailable}>
-                      <Canvas shadows>
-                        <PerspectiveCamera makeDefault position={[2, 2, 1.8]} fov={50} />
-                        <ambientLight intensity={0.1} />
+                      <Canvas shadows dpr={[1, 1.5]}>
+                        <PerspectiveCamera
+                          makeDefault
+                          position={[2, 2, 1.8]}
+                          fov={50}
+                        />
+
+                        <ambientLight intensity={1.2} />
+
+                        <directionalLight
+                          position={[3, 5, 3]}
+                          intensity={2}
+                        />
+
+                        <directionalLight
+                          position={[-3, 2, 2]}
+                          intensity={1}
+                        />
+
                         <Environment preset="studio" />
+
                         <Suspense fallback={<ModelLoader />}>
-                          <AvatarModel modelPath={avatar.model} />
+                          <AvatarModel
+                            modelPath={avatar.model}
+                            scale={avatar.previewScale}
+                            position={avatar.previewPosition}
+                          />
                         </Suspense>
+
                         <OrbitControls
                           enableZoom={false}
                           enablePan={false}
-                          target={[0, 0.5, 0]}
+                          target={[0, 0.4, 0]}
                           autoRotate
                           autoRotateSpeed={1.5}
                           minPolarAngle={Math.PI / 3}
@@ -225,7 +265,7 @@ const AvatarSelection = () => {
                   )}
                 </div>
 
-                {/* Avatar Info */}
+                {/* Avatar information */}
                 <div className="text-center">
                   <h2 className="text-2xl font-bold text-white mb-2">
                     {avatar.name}
@@ -237,15 +277,16 @@ const AvatarSelection = () => {
                     </span>
                   </div>
 
-                  <p className="text-purple-100 mb-4">
+                  <p className="text-purple-100 text-base mb-4">
                     {avatar.description}
                   </p>
 
-                  <div className="bg-white/10 rounded-2xl p-3">
+                  <div className="bg-white/10 rounded-2xl p-4">
                     <p className="text-sm text-purple-200 mb-1">
                       <strong>Personality:</strong>
                     </p>
-                    <p className="text-sm text-purple-100">
+
+                    <p className="text-purple-100">
                       {avatar.personality}
                     </p>
                   </div>
@@ -255,29 +296,30 @@ const AvatarSelection = () => {
           })}
         </div>
 
-        {/* Info Box */}
+        {/* Info box */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.5 }}
           className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 mb-8"
         >
           <div className="flex items-start gap-4">
             <User className="w-6 h-6 text-purple-300 mt-1" />
+
             <div>
               <h3 className="text-lg font-semibold text-white mb-2">
                 Why Choose Your Interviewer?
               </h3>
               <p className="text-purple-200">
-                Different interviewers have different styles. Choose the one that makes you feel
-                most comfortable and matches your practice goals. You can always switch between
-                avatars in future sessions.
+                Different interviewers have different styles. Choose the
+                avatar that makes you feel most comfortable practicing with.
+                You can switch between avatars in future sessions.
               </p>
             </div>
           </div>
         </motion.div>
 
-        {/* Next Button */}
+        {/* Continue */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -290,8 +332,8 @@ const AvatarSelection = () => {
             whileHover={{ scale: selectedAvatar ? 1.05 : 1 }}
             whileTap={{ scale: selectedAvatar ? 0.95 : 1 }}
             className={`
-              inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-semibold text-lg
-              transition-all shadow-lg
+              inline-flex items-center gap-3 px-8 py-4 rounded-2xl
+              font-semibold text-lg transition-all shadow-lg
               ${selectedAvatar
                 ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-purple-500/50'
                 : 'bg-gray-500/50 text-gray-300 cursor-not-allowed'

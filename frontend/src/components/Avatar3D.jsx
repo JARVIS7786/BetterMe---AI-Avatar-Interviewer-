@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, useGLTF } from '@react-three/drei';
+import { OrbitControls, useAnimations, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { getAvatarById } from '../config/avatars';
 
@@ -35,18 +35,42 @@ const MODEL_HEIGHT = 2.1; // normalize every model to ~2.1 world units
 const FLOOR_Y = -1.15;
 
 /**
- * Loads and animates a GLB avatar:
+ * Loads and animates a GLB/GLTF avatar:
  *  - auto-fits scale/position via bounding box (no per-model magic numbers)
- *  - idle bob + subtle sway
- *  - amplitude-driven mouth morphs when audio plays
- *  - scale pulse fallback when the model has no morph targets
+ *  - plays the model's real idle animation clip when it ships one
+ *    (BlueDemon/Bunny/MushroomKing/Yeti all include an 'Idle' clip -
+ *     verified by inspecting the assets)
+ *  - idle bob + subtle sway for models without clips
+ *  - amplitude-driven mouth morphs when audio plays (cara/kevin)
+ *  - scale pulse while speaking for models without morph targets
  */
-function GLBAvatar({ modelPath, amplitudeRef }) {
-  const { scene } = useGLTF(modelPath);
+function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
+  const { scene, animations } = useGLTF(modelPath);
   const groupRef = useRef(null);
   const morphDriversRef = useRef([]);
   const smoothAmpRef = useRef(0);
   const timeRef = useRef(0);
+
+  const { actions, mixer } = useAnimations(animations, groupRef);
+
+  // Play the model's bundled idle animation (if any) - real animation clips,
+  // only used after inspecting the assets; never claimed to be lip sync.
+  useEffect(() => {
+    if (!idleAnimation || !animations.length) return undefined;
+
+    const clip = animations.find((a) => a.name === idleAnimation) || animations[0];
+    const action = actions?.[clip.name];
+
+    if (!action) return undefined;
+
+    console.log(`Avatar3D: playing '${clip.name}' animation clip`);
+    action.reset().fadeIn(0.3).play();
+
+    return () => {
+      action.fadeOut(0.2);
+      mixer?.stopAllAction();
+    };
+  }, [idleAnimation, animations, actions, mixer]);
 
   // Discover drivable morph targets once per model.
   useEffect(() => {
@@ -319,7 +343,11 @@ function Avatar3D({ audioData, avatarType = 'cara', onPlaybackChange, onModelErr
           <SceneLights />
           {modelPath ? (
             <Suspense fallback={<ModelLoadingFallback />}>
-              <GLBAvatar modelPath={modelPath} amplitudeRef={amplitudeRef} />
+              <GLBAvatar
+                modelPath={modelPath}
+                idleAnimation={avatar?.idleAnimation || null}
+                amplitudeRef={amplitudeRef}
+              />
             </Suspense>
           ) : (
             <FallbackSphere amplitudeRef={amplitudeRef} />

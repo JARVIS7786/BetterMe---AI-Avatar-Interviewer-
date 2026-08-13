@@ -2,17 +2,18 @@
 // model paths and voice grouping.
 //
 // Canonical ids are snake_case and are used consistently in:
-//   - sessionStorage ('selectedAvatar')
+//   - sessionStorage ('selectedAvatar')  <- the ONLY avatar key stored
 //   - backend tts_service.VOICES keys
 //   - /api/text-to-speech-lipsync `speaker` field
 //
-// NOTE on availability:
-//   cara1.glb, kevin2.glb, baymax.glb ship in this repo (self-contained GLBs,
-//   verified to have no external buffer/texture dependencies).
-//   The .gltf models (BlueDemon, Bunny, MushroomKing, Yeti) may reference
-//   external .bin/texture files; the UI probes availability at runtime and
-//   disables any avatar whose model is missing or fails to load instead of
-//   silently falling back.
+// Model verification (inspected, not assumed):
+//   - All 7 files exist under frontend/public/models/ and are fully
+//     self-contained (no external .bin/texture references).
+//   - cara1.glb / kevin2.glb: skinned, with mouthOpen + Oculus viseme_*
+//     morph targets (driven by audio amplitude in Avatar3D).
+//   - baymax.glb: static mesh, no morphs/animations (scale-pulse fallback).
+//   - BlueDemon/Bunny/MushroomKing/Yeti (.gltf): skinned, with animation
+//     clips including 'Idle' (played in the InterviewRoom via useAnimations).
 
 export const AVATARS = [
   {
@@ -24,7 +25,11 @@ export const AVATARS = [
     personality: 'Friendly, encouraging, detail-oriented',
     color: 'from-pink-500 to-purple-500',
     model: '/models/cara1.glb',
+    format: 'glb',
+    hasMorphTargets: true,
     bundled: true,
+    previewScale: 1.8,
+    previewPosition: [0, -1.5, 0],
   },
   {
     id: 'kevin',
@@ -35,62 +40,90 @@ export const AVATARS = [
     personality: 'Direct, analytical, constructive',
     color: 'from-blue-500 to-cyan-500',
     model: '/models/kevin2.glb',
+    format: 'glb',
+    hasMorphTargets: true,
     bundled: true,
+    previewScale: 1.8,
+    previewPosition: [0, -1.5, 0],
   },
   {
     id: 'baymax',
     name: 'Baymax',
-    gender: 'Robot',
+    gender: 'AI',
     voiceLabel: 'Robotic voice (Iapetus)',
-    description: 'Calm, gentle and supportive healthcare-style companion',
-    personality: 'Patient, soft-spoken, reassuring',
-    color: 'from-slate-400 to-slate-600',
+    description: 'Friendly AI interviewer designed for a calm and supportive experience',
+    personality: 'Calm, supportive, patient',
+    color: 'from-slate-200 to-blue-200',
     model: '/models/baymax.glb',
+    format: 'glb',
+    hasMorphTargets: false,
     bundled: true,
+    previewScale: 1.8,
+    previewPosition: [0, -1.5, 0],
   },
   {
     id: 'blue_demon',
     name: 'Blue Demon',
-    gender: 'Male',
+    gender: 'AI',
     voiceLabel: 'Male voice (Fenrir)',
-    description: 'Intense, high-energy interviewer for pressure practice',
-    personality: 'Bold, challenging, uncompromising',
-    color: 'from-indigo-500 to-blue-700',
+    description: 'Bold fantasy avatar for a more energetic interview experience',
+    personality: 'Confident, energetic, challenging',
+    color: 'from-blue-700 to-indigo-900',
     model: '/models/BlueDemon.gltf',
-    bundled: false,
+    format: 'gltf',
+    hasMorphTargets: false,
+    idleAnimation: 'Idle',
+    bundled: true,
+    previewScale: 1.35,
+    previewPosition: [0, -1.4, 0],
   },
   {
     id: 'bunny',
     name: 'Bunny',
-    gender: 'Female',
+    gender: 'AI',
     voiceLabel: 'Female voice (Aoede)',
-    description: 'Playful, light-hearted practice partner to ease nerves',
-    personality: 'Cheerful, quick, supportive',
-    color: 'from-rose-400 to-pink-600',
+    description: 'Friendly fantasy avatar with a relaxed and approachable style',
+    personality: 'Friendly, relaxed, encouraging',
+    color: 'from-pink-300 to-purple-300',
     model: '/models/Bunny.gltf',
-    bundled: false,
+    format: 'gltf',
+    hasMorphTargets: false,
+    idleAnimation: 'Idle',
+    bundled: true,
+    previewScale: 1.35,
+    previewPosition: [0, -1.4, 0],
   },
   {
     id: 'mushroom_king',
     name: 'Mushroom King',
-    gender: 'Male',
+    gender: 'AI',
     voiceLabel: 'Female voice (Leda)',
-    description: 'A whimsical ruler with thoughtful, story-driven questions',
-    personality: 'Curious, whimsical, wise',
-    color: 'from-amber-500 to-red-600',
+    description: 'Creative fantasy avatar for a fun and unconventional interview',
+    personality: 'Creative, playful, curious',
+    color: 'from-red-500 to-yellow-500',
     model: '/models/MushroomKing.gltf',
-    bundled: false,
+    format: 'gltf',
+    hasMorphTargets: false,
+    idleAnimation: 'Idle',
+    bundled: true,
+    previewScale: 1.35,
+    previewPosition: [0, -1.4, 0],
   },
   {
     id: 'yeti',
     name: 'Yeti',
-    gender: 'Male',
+    gender: 'AI',
     voiceLabel: 'Male voice (Charon)',
-    description: 'Stoic, deep-voiced interviewer for calm, steady practice',
-    personality: 'Steady, deep, measured',
-    color: 'from-cyan-400 to-slate-500',
+    description: 'Powerful fantasy avatar for a challenging interview experience',
+    personality: 'Strong, direct, analytical',
+    color: 'from-slate-400 to-slate-700',
     model: '/models/Yeti.gltf',
-    bundled: false,
+    format: 'gltf',
+    hasMorphTargets: false,
+    idleAnimation: 'Idle',
+    bundled: true,
+    previewScale: 1.35,
+    previewPosition: [0, -1.4, 0],
   },
 ];
 
