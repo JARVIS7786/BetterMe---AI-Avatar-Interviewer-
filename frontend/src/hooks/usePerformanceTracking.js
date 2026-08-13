@@ -1,7 +1,7 @@
 // usePerformanceTracking.js
 // React hook for tracking interview performance
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -12,6 +12,14 @@ export const usePerformanceTracking = (sessionId, userId) => {
   const [questionStartTime, setQuestionStartTime] = useState(null);
   const [sessionStartTime, setSessionStartTime] = useState(null);
   const [sessionData, setSessionData] = useState(null);
+
+  // answersRef is the synchronous source of truth for submitSession.
+  // React state updates are asynchronous, so reading `answers` state inside
+  // submitSession right after recordAnswer loses the final answer.
+  const answersRef = useRef([]);
+  // In-flight submission promise: guards against double-submit even if a
+  // caller has a bug. Reused instead of firing a second POST.
+  const submissionInFlightRef = useRef(null);
 
   // Initialize session
   useEffect(() => {
@@ -32,7 +40,10 @@ export const usePerformanceTracking = (sessionId, userId) => {
       timestamp: now
     };
 
-    setAnswers(prev => [...prev, answer]);
+    // Synchronous ref update (safe for same-tick submitSession reads)
+    // plus state mirror for anything that renders the answers list.
+    answersRef.current = [...answersRef.current, answer];
+    setAnswers(answersRef.current);
     setQuestionStartTime(now); // Reset for next question
     setCurrentQuestionIndex(prev => prev + 1);
 
@@ -45,9 +56,16 @@ export const usePerformanceTracking = (sessionId, userId) => {
     return (Date.now() - sessionStartTime) / 1000;
   }, [sessionStartTime]);
 
-  // Submit session for performance calculation
+  // Submit session for performance calculation.
+  // Exactly-once: a concurrent second call returns the in-flight promise
+  // instead of firing another POST /api/performance/submit-session.
   const submitSession = useCallback(async (questions, interviewType, avatarName) => {
-    try {
+    if (submissionInFlightRef.current) {
+      console.warn('submitSession already in flight - reusing the same request');
+      return submissionInFlightRef.current;
+    }
+
+    const request = (async () => {
       const sessionDuration = getSessionDuration();
 
       const payload = {
@@ -55,10 +73,13 @@ export const usePerformanceTracking = (sessionId, userId) => {
         session_id: sessionId,
         interview_type: interviewType,
         questions: questions.map(q => q.question),
-        answers: answers,
+        // Read from the ref: answers recorded in the same tick are included.
+        answers: answersRef.current,
         session_duration: sessionDuration,
         avatar_name: avatarName
       };
+
+      console.log(`Submitting session ${sessionId} with ${answersRef.current.length} answers`);
 
       const response = await axios.post(
         `${API_URL}/api/performance/submit-session`,
@@ -67,11 +88,19 @@ export const usePerformanceTracking = (sessionId, userId) => {
 
       setSessionData(response.data);
       return response.data;
+    })();
+
+    submissionInFlightRef.current = request;
+
+    try {
+      return await request;
     } catch (error) {
       console.error('Error submitting session:', error);
+      // Clear the in-flight marker so a genuine retry is possible.
+      submissionInFlightRef.current = null;
       throw error;
     }
-  }, [userId, sessionId, answers, getSessionDuration]);
+  }, [userId, sessionId, getSessionDuration]);
 
   // Get user statistics
   const getUserStats = useCallback(async () => {
