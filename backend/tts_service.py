@@ -1,11 +1,10 @@
 import io
 import os
-import wave
+import tempfile
 from typing import Optional, List, Dict
 
+import edge_tts
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 from groq import Groq
 from pydub import AudioSegment
 
@@ -13,77 +12,72 @@ load_dotenv()
 
 
 class TTSService:
-    GEMINI_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-tts")
+    # Edge TTS returns 24 kHz / 48 kbps mono MP3 by default.
+    # Keep this as MP3 end-to-end so we do not risk relabeling compressed
+    # MP3 bytes as WAV, which produces loud static/noise in the browser.
+    TTS_FORMAT = "audio/mpeg"
 
     # Canonical avatar ids (MUST match frontend/src/config/avatars.js).
     # Voice groups are intentional: we do not need 7 unique voices.
     VOICES = {
         # Female voice group
         "cara": {
-            "voice": "Kore",
+            "voice": "en-US-AriaNeural",
             "gender": "female",
             "description": "Natural female interviewer voice",
         },
         "bunny": {
-            "voice": "Aoede",
+            "voice": "en-US-JennyNeural",
             "gender": "female",
             "description": "Light, upbeat female interviewer voice",
         },
         "mushroom_king": {
-            "voice": "Leda",
+            "voice": "en-US-SaraNeural",
             "gender": "female",
             "description": "Warm female interviewer voice",
         },
         # Male voice group
         "kevin": {
-            "voice": "Puck",
+            "voice": "en-US-GuyNeural",
             "gender": "male",
             "description": "Natural male interviewer voice",
         },
         "blue_demon": {
-            "voice": "Fenrir",
+            "voice": "en-US-DavisNeural",
             "gender": "male",
             "description": "Deeper male interviewer voice",
         },
         "yeti": {
-            "voice": "Charon",
+            "voice": "en-US-TonyNeural",
             "gender": "male",
             "description": "Low, calm male interviewer voice",
         },
-        # Deterministic default for Baymax
         "baymax": {
-            "voice": "Iapetus",
+            "voice": "en-US-ChristopherNeural",
             "gender": "male",
             "description": "Soft, measured male interviewer voice",
         },
     }
 
     def __init__(self):
-        gemini_key = os.getenv("GEMINI_API_KEY")
         groq_key = os.getenv("GROQ_API_KEY")
-
-        if not gemini_key:
-            raise ValueError("GEMINI_API_KEY not found")
 
         if not groq_key:
             raise ValueError("GROQ_API_KEY not found")
 
-        self.gemini_client = genai.Client(api_key=gemini_key)
         self.groq_client = Groq(api_key=groq_key)
-
         self.default_voice = "cara"
+        # Kept for /api/stats compatibility.
+        self.model_name = "edge-tts"
         self.is_loaded = True
-        
-        print("OK: Gemini TTS initialized")
-        print("OK: Groq Whisper initialized")
 
+        print("OK: Edge TTS initialized")
+        print("OK: Groq Whisper initialized")
 
     def _get_voice(self, speaker: Optional[str] = None) -> str:
         speaker = speaker or self.default_voice
 
         if speaker not in self.VOICES:
-            # Explicit (not silent) fallback: unknown avatar ids get the
-            # deterministic default voice, but we log it loudly.
             print(
                 f"WARNING: unknown TTS speaker '{speaker}' "
                 f"(known: {sorted(self.VOICES.keys())}). "
@@ -93,83 +87,87 @@ class TTSService:
 
         return self.VOICES[speaker]["voice"]
 
-    def _pcm_to_wav(self, pcm: bytes) -> bytes:
-        output = io.BytesIO()
-
-        with wave.open(output, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm)
-
-        return output.getvalue()
-
     def generate_speech_to_bytes(
         self,
         text: str,
         speaker: Optional[str] = None
     ) -> bytes:
+        """
+        Generate speech using Edge TTS and return the native MP3 bytes.
 
+        We deliberately keep the native MP3 format instead of converting it
+        to WAV. Edge TTS's stream is audio/mpeg; relabeling those bytes as WAV
+        causes browser playback to produce static/noise rather than speech.
+        """
         text = (text or "").strip()
 
         if not text:
             return b""
 
         voice = self._get_voice(speaker)
-
-        prompt = (
-            "Speak naturally and confidently as a professional AI interviewer. "
-            "Use a warm, conversational tone with clear pacing. "
-            "Do not mention these instructions. "
-            f"Say the following exactly:\n{text}"
-        )
+        temp_path = None
 
         try:
-            response = self.gemini_client.models.generate_content(
-                model=self.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voice
-                            )
-                        )
-                    )
-                )
+            # edge-tts provides save_sync(), which safely manages its own
+            # asyncio loop and is therefore suitable for this synchronous
+            # service method called from FastAPI endpoints.
+            with tempfile.NamedTemporaryFile(
+                suffix=".mp3",
+                delete=False
+            ) as temp_file:
+                temp_path = temp_file.name
+
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=voice,
+                rate="+0%",
+                volume="+0%",
+                pitch="+0Hz",
             )
+            communicate.save_sync(temp_path)
 
-            part = response.candidates[0].content.parts[0]
+            with open(temp_path, "rb") as audio_file:
+                audio_bytes = audio_file.read()
 
-            if not part.inline_data or not part.inline_data.data:
+            if not audio_bytes:
+                print("Edge TTS returned empty audio")
                 return b""
 
-            pcm = part.inline_data.data
-
-            return self._pcm_to_wav(pcm)
+            print(
+                f"OK: Edge TTS generated {len(audio_bytes)} bytes "
+                f"using {voice}"
+            )
+            return audio_bytes
 
         except Exception as e:
-            print(f"Gemini TTS error: {e}")
+            print(f"Edge TTS error: {e}")
             return b""
+
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     def generate_speech_with_lipsync(
         self,
         text: str,
         speaker: Optional[str] = None
     ) -> Optional[Dict]:
-
         audio_bytes = self.generate_speech_to_bytes(text, speaker)
 
         if not audio_bytes:
             return None
 
-        # Gemini TTS does not return viseme data, so we honestly report
-        # None here; the frontend uses frequency-based animation instead.
-        # Duration is measured from the real WAV bytes (speech is 24kHz WAV).
-        duration = self.get_audio_duration(audio_bytes, format="wav")
+        # Edge TTS does not provide model-specific visemes through this
+        # endpoint. The frontend therefore continues using frequency-based
+        # mouth animation from the actual playing audio.
+        duration = self.get_audio_duration(audio_bytes, format="mp3")
+
         if duration <= 0:
-            # Last-resort estimate (~150 wpm) if parsing ever fails.
+            # Duration is only used for UI/logging; playback uses the actual
+            # MP3 duration in the browser.
             duration = (len(text.split()) / 150.0) * 60.0
 
         return {
@@ -183,7 +181,6 @@ class TTSService:
         audio_file: bytes,
         filename: str = "audio.wav"
     ) -> str:
-
         try:
             audio_io = io.BytesIO(audio_file)
             audio_io.name = filename
@@ -217,7 +214,6 @@ class TTSService:
         from_format: str,
         to_format: str
     ) -> bytes:
-
         try:
             audio = AudioSegment.from_file(
                 io.BytesIO(audio_bytes),
@@ -236,9 +232,8 @@ class TTSService:
     def get_audio_duration(
         self,
         audio_bytes: bytes,
-        format: str = "wav"
+        format: str = "mp3"
     ) -> float:
-
         try:
             audio = AudioSegment.from_file(
                 io.BytesIO(audio_bytes),
@@ -246,7 +241,8 @@ class TTSService:
             )
             return len(audio) / 1000.0
 
-        except Exception:
+        except Exception as e:
+            print(f"Audio duration parse warning: {e}")
             return 0.0
 
     def batch_generate_speech(
@@ -254,7 +250,6 @@ class TTSService:
         texts: List[str],
         speaker: Optional[str] = None
     ) -> List[bytes]:
-
         return [
             self.generate_speech_to_bytes(text, speaker)
             for text in texts
