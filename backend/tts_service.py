@@ -7,15 +7,20 @@ import edge_tts
 from dotenv import load_dotenv
 from groq import Groq
 from pydub import AudioSegment
+import imageio_ffmpeg
 
 load_dotenv()
 
+# pydub needs an ffmpeg binary to decode Edge TTS's MP3 output.
+# imageio-ffmpeg supplies a portable binary on Render/Linux and locally.
+AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+
 
 class TTSService:
-    # Edge TTS returns 24 kHz / 48 kbps mono MP3 by default.
-    # Keep this as MP3 end-to-end so we do not risk relabeling compressed
-    # MP3 bytes as WAV, which produces loud static/noise in the browser.
-    TTS_FORMAT = "audio/mpeg"
+    # The frontend expects audio/wav. Edge TTS natively returns MP3, so we
+    # explicitly decode and re-encode it rather than relabeling MP3 bytes as
+    # WAV. Relabeling compressed MP3 bytes as WAV produces static/noise.
+    TTS_FORMAT = "audio/wav"
 
     # Canonical avatar ids (MUST match frontend/src/config/avatars.js).
     # Voice groups are intentional: we do not need 7 unique voices.
@@ -92,13 +97,7 @@ class TTSService:
         text: str,
         speaker: Optional[str] = None
     ) -> bytes:
-        """
-        Generate speech using Edge TTS and return the native MP3 bytes.
-
-        We deliberately keep the native MP3 format instead of converting it
-        to WAV. Edge TTS's stream is audio/mpeg; relabeling those bytes as WAV
-        causes browser playback to produce static/noise rather than speech.
-        """
+        """Generate Edge TTS speech and return valid 24 kHz mono WAV bytes."""
         text = (text or "").strip()
 
         if not text:
@@ -108,9 +107,8 @@ class TTSService:
         temp_path = None
 
         try:
-            # edge-tts provides save_sync(), which safely manages its own
-            # asyncio loop and is therefore suitable for this synchronous
-            # service method called from FastAPI endpoints.
+            # edge-tts.save_sync() safely manages its own asyncio loop and is
+            # suitable for this synchronous service method.
             with tempfile.NamedTemporaryFile(
                 suffix=".mp3",
                 delete=False
@@ -127,17 +125,39 @@ class TTSService:
             communicate.save_sync(temp_path)
 
             with open(temp_path, "rb") as audio_file:
-                audio_bytes = audio_file.read()
+                mp3_bytes = audio_file.read()
 
-            if not audio_bytes:
+            if not mp3_bytes:
                 print("Edge TTS returned empty audio")
                 return b""
 
+            # IMPORTANT: Edge TTS returns audio/mpeg. Decode it first, then
+            # encode a real WAV file. This prevents the static/noise symptom
+            # caused by treating MP3 bytes as WAV in the browser.
+            audio = AudioSegment.from_file(
+                io.BytesIO(mp3_bytes),
+                format="mp3"
+            )
+            audio = (
+                audio
+                .set_channels(1)
+                .set_frame_rate(24000)
+                .set_sample_width(2)
+            )
+
+            output = io.BytesIO()
+            audio.export(output, format="wav")
+            wav_bytes = output.getvalue()
+
+            if not wav_bytes:
+                print("Edge TTS WAV conversion returned empty audio")
+                return b""
+
             print(
-                f"OK: Edge TTS generated {len(audio_bytes)} bytes "
+                f"OK: Edge TTS generated {len(wav_bytes)} WAV bytes "
                 f"using {voice}"
             )
-            return audio_bytes
+            return wav_bytes
 
         except Exception as e:
             print(f"Edge TTS error: {e}")
@@ -161,13 +181,11 @@ class TTSService:
             return None
 
         # Edge TTS does not provide model-specific visemes through this
-        # endpoint. The frontend therefore continues using frequency-based
-        # mouth animation from the actual playing audio.
-        duration = self.get_audio_duration(audio_bytes, format="mp3")
+        # endpoint. The frontend continues using frequency-based mouth
+        # animation from the actual playing WAV audio.
+        duration = self.get_audio_duration(audio_bytes, format="wav")
 
         if duration <= 0:
-            # Duration is only used for UI/logging; playback uses the actual
-            # MP3 duration in the browser.
             duration = (len(text.split()) / 150.0) * 60.0
 
         return {
@@ -232,7 +250,7 @@ class TTSService:
     def get_audio_duration(
         self,
         audio_bytes: bytes,
-        format: str = "mp3"
+        format: str = "wav"
     ) -> float:
         try:
             audio = AudioSegment.from_file(
