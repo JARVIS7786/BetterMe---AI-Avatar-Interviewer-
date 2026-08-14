@@ -36,6 +36,7 @@ google-genai==1.21.1
 
 # Audio / TTS
 pydub==0.25.1
+imageio-ffmpeg
 edge-tts
 
 # ML Libraries
