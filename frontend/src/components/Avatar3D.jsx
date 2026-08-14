@@ -4,6 +4,7 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useAnimations, useGLTF } from '@react-three/drei';
@@ -13,37 +14,21 @@ import { getAvatarById } from '../config/avatars';
 /**
  * Avatar3D - renders the REAL selected 3D avatar (GLB via useGLTF).
  *
- * Gemini TTS provides no viseme data, so "lip sync" here is honestly
- * frequency/amplitude-based: a Web Audio analyser drives the model's
- * real mouth/viseme morph targets (cara/kevin have them). Models without
- * morph targets (e.g. baymax) get an audio-reactive scale pulse instead.
- *
- * Audio lifecycle: exactly one <audio> element per audioData change,
- * fully cleaned up (paused, URL revoked, AudioContext closed), and the
- * parent is notified of playing/ended via onPlaybackChange.
+ * Audio playback uses one persistent Web Audio context per Avatar3D mount.
+ * The analyser is reused between questions instead of creating/closing an
+ * AudioContext for every generated TTS clip. This avoids browser resource
+ * churn during multi-question interviews.
  */
 
-// Morph targets we drive (if present) and their relative gains.
-// cara1.glb / kevin2.glb expose mouthOpen + Oculus viseme_* targets.
 const MORPH_DRIVERS = [
   { name: 'mouthOpen', gain: 1.0 },
   { name: 'viseme_aa', gain: 0.8 },
   { name: 'viseme_O', gain: 0.55 },
 ];
 
-const MODEL_HEIGHT = 2.1; // normalize every model to ~2.1 world units
+const MODEL_HEIGHT = 2.1;
 const FLOOR_Y = -1.15;
 
-/**
- * Loads and animates a GLB/GLTF avatar:
- *  - auto-fits scale/position via bounding box (no per-model magic numbers)
- *  - plays the model's real idle animation clip when it ships one
- *    (BlueDemon/Bunny/MushroomKing/Yeti all include an 'Idle' clip -
- *     verified by inspecting the assets)
- *  - idle bob + subtle sway for models without clips
- *  - amplitude-driven mouth morphs when audio plays (cara/kevin)
- *  - scale pulse while speaking for models without morph targets
- */
 function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
   const { scene, animations } = useGLTF(modelPath);
   const groupRef = useRef(null);
@@ -53,8 +38,6 @@ function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
 
   const { actions, mixer } = useAnimations(animations, groupRef);
 
-  // Play the model's bundled idle animation (if any) - real animation clips,
-  // only used after inspecting the assets; never claimed to be lip sync.
   useEffect(() => {
     if (!idleAnimation || !animations.length) return undefined;
 
@@ -72,7 +55,6 @@ function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
     };
   }, [idleAnimation, animations, actions, mixer]);
 
-  // Discover drivable morph targets once per model.
   useEffect(() => {
     const drivers = [];
     scene.traverse((obj) => {
@@ -91,14 +73,12 @@ function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
     );
 
     return () => {
-      // Reset influences so a cached scene never gets stuck mid-expression.
       drivers.forEach(({ obj, index }) => {
         if (obj.morphTargetInfluences) obj.morphTargetInfluences[index] = 0;
       });
     };
   }, [scene, modelPath]);
 
-  // Auto-fit: uniform scale so the model is MODEL_HEIGHT tall, standing on FLOOR_Y.
   const fit = useMemo(() => {
     const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
@@ -116,83 +96,157 @@ function GLBAvatar({ modelPath, idleAnimation, amplitudeRef }) {
     timeRef.current += delta;
     const t = timeRef.current;
 
-    // Current audio amplitude (0 when silent/paused/no audio).
     const amp = readAmplitude(amplitudeRef.current);
     smoothAmpRef.current = THREE.MathUtils.lerp(smoothAmpRef.current, amp, 0.3);
     const level = smoothAmpRef.current;
 
-    // Idle motion: gentle bob + subtle sway (not a spinning puppet).
-    groupRef.current.position.y =
-      fit.position[1] + Math.sin(t * 0.8) * 0.02;
+    groupRef.current.position.y = fit.position[1] + Math.sin(t * 0.8) * 0.02;
     groupRef.current.rotation.y = Math.sin(t * 0.35) * 0.08;
 
     if (morphDriversRef.current.length > 0) {
-      // Audio-reactive mouth movement on the real mesh.
       const mouth = THREE.MathUtils.clamp(level * 1.9, 0, 0.95);
       morphDriversRef.current.forEach(({ obj, index, gain }) => {
         const target = mouth * gain;
         const current = obj.morphTargetInfluences[index] || 0;
         obj.morphTargetInfluences[index] = THREE.MathUtils.lerp(current, target, 0.45);
       });
-      // Tiny breathing scale, mostly flat.
       const s = fit.scale * (1 + level * 0.03);
       groupRef.current.scale.setScalar(s);
     } else {
-      // No morph targets (e.g. baymax): visibly "speaking" via pulse.
       const s = fit.scale * (1 + level * 0.12);
       groupRef.current.scale.setScalar(s);
     }
   });
 
   return (
-    <group
-      ref={groupRef}
-      position={fit.position}
-      scale={fit.scale}
-    >
+    <group ref={groupRef} position={fit.position} scale={fit.scale}>
       <primitive object={scene} />
     </group>
   );
 }
 
-/** Reads 0..1 average frequency amplitude from the live analyser slot. */
 function readAmplitude(slot) {
   if (!slot || !slot.audio || slot.audio.paused || slot.audio.ended) return 0;
-  slot.analyser.getByteFrequencyData(slot.data);
+  try {
+    slot.analyser.getByteFrequencyData(slot.data);
+  } catch (error) {
+    // The audio context may briefly suspend during a browser/device change.
+    return 0;
+  }
   let sum = 0;
   for (let i = 0; i < slot.data.length; i++) sum += slot.data[i];
   return sum / slot.data.length / 255;
 }
 
 /**
- * Manages the single <audio> element + Web Audio analyser for audioData.
- * Full cleanup on change/unmount; reports playing state to the parent.
+ * Keeps one AudioContext + analyser alive for the whole Avatar3D lifetime.
+ * Each question gets a fresh HTMLAudioElement, but the expensive browser
+ * AudioContext is reused. The old MediaElementSource is disconnected before
+ * the next source is attached.
  */
 function usePlaybackAudio(audioData, amplitudeRef, onPlaybackChange) {
+  const contextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const sourceRef = useRef(null);
+  const audioRef = useRef(null);
+  const urlRef = useRef(null);
+
+  // Create exactly one AudioContext/analyser for this Avatar3D mount.
   useEffect(() => {
-    if (!audioData) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      console.warn('Audio playback: Web Audio API is unavailable');
       return undefined;
     }
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContextClass();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.8;
+    analyser.connect(ctx.destination);
+
+    contextRef.current = ctx;
+    analyserRef.current = analyser;
+
+    return () => {
+      amplitudeRef.current = null;
+
+      if (sourceRef.current) {
+        try {
+          sourceRef.current.disconnect();
+        } catch (_) {}
+        sourceRef.current = null;
+      }
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute('src');
+        audioRef.current.load();
+        audioRef.current = null;
+      }
+
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
+
+      if (ctx.state !== 'closed') {
+        ctx.close().catch(() => {});
+      }
+
+      contextRef.current = null;
+      analyserRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Replace only the media element/source when a new question's audio arrives.
+  useEffect(() => {
+    const ctx = contextRef.current;
+    const analyser = analyserRef.current;
+
+    if (!ctx || !analyser) return undefined;
+
+    // Stop and fully disconnect the previous clip without closing the context.
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.disconnect();
+      } catch (_) {}
+      sourceRef.current = null;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+      audioRef.current = null;
+    }
+
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+
+    amplitudeRef.current = null;
+
+    if (!audioData) {
+      onPlaybackChange?.(false);
+      return undefined;
+    }
 
     const audio = new Audio();
     const url = URL.createObjectURL(audioData);
     let disposed = false;
 
-    const notifyEnded = () => onPlaybackChange?.(false);
-    audio.addEventListener('ended', notifyEnded);
-
+    audioRef.current = audio;
+    urlRef.current = url;
     audio.src = url;
+    audio.preload = 'auto';
     audio.crossOrigin = 'anonymous';
 
     const source = ctx.createMediaElementSource(audio);
     source.connect(analyser);
-    analyser.connect(ctx.destination);
+    sourceRef.current = source;
 
     amplitudeRef.current = {
       analyser,
@@ -200,18 +254,26 @@ function usePlaybackAudio(audioData, amplitudeRef, onPlaybackChange) {
       data: new Uint8Array(analyser.frequencyBinCount),
     };
 
-    // Autoplay may be blocked; we surface that to the parent instead of
-    // swallowing it, but never fire a second TTS request here.
-    ctx.resume().catch(() => {});
-    audio
-      .play()
-      .then(() => {
+    const notifyEnded = () => {
+      if (!disposed) {
+        amplitudeRef.current = null;
+        onPlaybackChange?.(false);
+      }
+    };
+    audio.addEventListener('ended', notifyEnded);
+
+    const startPlayback = async () => {
+      try {
+        if (ctx.state === 'suspended') await ctx.resume();
+        await audio.play();
         if (!disposed) onPlaybackChange?.(true);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.warn('Audio playback blocked or failed:', err);
         if (!disposed) onPlaybackChange?.(false, err);
-      });
+      }
+    };
+
+    startPlayback();
 
     return () => {
       disposed = true;
@@ -219,19 +281,26 @@ function usePlaybackAudio(audioData, amplitudeRef, onPlaybackChange) {
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
-      URL.revokeObjectURL(url);
-      amplitudeRef.current = null;
-      if (ctx.state !== 'closed') {
-        ctx.close().catch(() => {});
+
+      try {
+        source.disconnect();
+      } catch (_) {}
+
+      if (sourceRef.current === source) sourceRef.current = null;
+      if (audioRef.current === audio) audioRef.current = null;
+
+      if (urlRef.current === url) {
+        URL.revokeObjectURL(url);
+        urlRef.current = null;
       }
+
+      amplitudeRef.current = null;
       onPlaybackChange?.(false);
     };
     // onPlaybackChange is stable (useCallback in the parent).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioData]);
 }
-
-// ---- Fallbacks -----------------------------------------------------------
 
 function ModelLoadingFallback() {
   return (
@@ -242,10 +311,6 @@ function ModelLoadingFallback() {
   );
 }
 
-/**
- * Explicit fallback avatar. Only rendered when a model cannot load;
- * a warning is logged and the UI badge tells the user this is a fallback.
- */
 function FallbackSphere({ amplitudeRef }) {
   const meshRef = useRef(null);
   const timeRef = useRef(0);
@@ -276,7 +341,6 @@ function FallbackSphere({ amplitudeRef }) {
   );
 }
 
-/** Catches useGLTF load failures (missing/corrupt models) instead of crashing. */
 class ModelErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -293,14 +357,10 @@ class ModelErrorBoundary extends Component {
   }
 
   render() {
-    if (this.state.failed) {
-      return this.props.fallback;
-    }
+    if (this.state.failed) return this.props.fallback;
     return this.props.children;
   }
 }
-
-// ---- Main component ------------------------------------------------------
 
 function SceneLights() {
   return (
@@ -312,9 +372,58 @@ function SceneLights() {
   );
 }
 
+function WebGLCanvas({ children, camera, fallback = false }) {
+  const contextLostRef = useRef(false);
+
+  return (
+    <Canvas
+      camera={camera}
+      dpr={1}
+      frameloop="always"
+      gl={{
+        antialias: false,
+        alpha: true,
+        preserveDrawingBuffer: false,
+        powerPreference: 'default',
+      }}
+      onCreated={({ gl }) => {
+        const canvas = gl.domElement;
+
+        const handleContextLost = (event) => {
+          event.preventDefault();
+          contextLostRef.current = true;
+          console.warn('Avatar3D: WebGL context lost; browser will attempt to restore it.');
+        };
+
+        const handleContextRestored = () => {
+          contextLostRef.current = false;
+          console.info('Avatar3D: WebGL context restored.');
+          gl.setPixelRatio(1);
+          gl.setSize(canvas.clientWidth, canvas.clientHeight, false);
+          gl.render(gl.scene, gl.camera);
+        };
+
+        canvas.addEventListener('webglcontextlost', handleContextLost, false);
+        canvas.addEventListener('webglcontextrestored', handleContextRestored, false);
+
+        // R3F owns the renderer lifecycle; remove listeners when this canvas
+        // is disposed rather than creating another renderer ourselves.
+        const originalDispose = gl.dispose.bind(gl);
+        gl.dispose = () => {
+          canvas.removeEventListener('webglcontextlost', handleContextLost);
+          canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+          originalDispose();
+        };
+      }}
+    >
+      {children}
+    </Canvas>
+  );
+}
+
 function Avatar3D({ audioData, avatarType = 'cara', onPlaybackChange, onModelError }) {
   const amplitudeRef = useRef(null);
-  const [modelFailed, setModelFailed] = React.useState(false);
+  const [modelFailed, setModelFailed] = useState(false);
 
   usePlaybackAudio(audioData, amplitudeRef, onPlaybackChange);
 
@@ -333,13 +442,13 @@ function Avatar3D({ audioData, avatarType = 'cara', onPlaybackChange, onModelErr
           onModelError?.(err);
         }}
         fallback={
-          <Canvas camera={{ position: [0, 0.4, 3], fov: 50 }} style={{ background: 'transparent' }}>
+          <WebGLCanvas camera={{ position: [0, 0.4, 3], fov: 50 }}>
             <SceneLights />
             <FallbackSphere amplitudeRef={amplitudeRef} />
-          </Canvas>
+          </WebGLCanvas>
         }
       >
-        <Canvas camera={{ position: [0, 0.55, 2.3], fov: 50 }} style={{ background: 'transparent' }}>
+        <WebGLCanvas camera={{ position: [0, 0.55, 2.3], fov: 50 }}>
           <SceneLights />
           {modelPath ? (
             <Suspense fallback={<ModelLoadingFallback />}>
@@ -359,7 +468,7 @@ function Avatar3D({ audioData, avatarType = 'cara', onPlaybackChange, onModelErr
             minPolarAngle={Math.PI / 3}
             maxPolarAngle={Math.PI / 1.5}
           />
-        </Canvas>
+        </WebGLCanvas>
       </ModelErrorBoundary>
 
       {modelFailed && (
