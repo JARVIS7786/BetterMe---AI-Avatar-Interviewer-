@@ -13,7 +13,7 @@ load_dotenv()
 
 
 class TTSService:
-    GEMINI_MODEL = "gemini-3.1-flash-tts-preview"
+    GEMINI_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-tts")
 
     # Canonical avatar ids (MUST match frontend/src/config/avatars.js).
     # Voice groups are intentional: we do not need 7 unique voices.
